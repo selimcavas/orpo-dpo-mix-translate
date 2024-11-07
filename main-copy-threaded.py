@@ -4,6 +4,7 @@ import sys
 import json
 import time
 from functools import wraps
+import random  # Added import
 from datasets import load_dataset
 from llama_index.llms.gemini import Gemini
 from llama_index.core import Settings
@@ -24,7 +25,7 @@ dataset = dataset.filter(
 )
 
 # Initialize the gemini flash 1.5 model, switch keys when daily limit of 1.5k requests is reached
-google_api_key = os.getenv('GOOGLE_API_KEY4')
+google_api_key = os.getenv('GOOGLE_API_KEY1')
 Settings.llm = Gemini(api_key=google_api_key,
                       model="models/gemini-1.5-flash-002", temperature=0.67)
 llm = Settings.llm
@@ -81,7 +82,7 @@ class Record(BaseModel):
 translate_llm = llm.as_structured_llm(output_cls=Record)
 
 MAX_RETRIES = 3
-INITIAL_RETRY_DELAY = 1  # seconds
+INITIAL_RETRY_DELAY = 3  # seconds
 MAX_DELAY = 60  # Maximum delay between retries
 
 
@@ -97,7 +98,7 @@ def retry_on_error(max_retries=MAX_RETRIES, initial_delay=INITIAL_RETRY_DELAY):
                     return func(*args, **kwargs)
                 except Exception as e:
                     error_message = str(e)
-                    if "429" in error_message or "Resource has been exhausted" in error_message:
+                    if "429" in error_message and "Resource has been exhausted" in error_message:
                         print(f"\nAttempt {
                               attempt + 1} failed with rate limit error: {error_message}")
                         print(
@@ -105,12 +106,19 @@ def retry_on_error(max_retries=MAX_RETRIES, initial_delay=INITIAL_RETRY_DELAY):
                         save_checkpoint(current_index)
                         shutdown_event.set()
                         return None
+                    elif "MAX_TOKENS" in error_message:
+                        print(f"\nMAX_TOKENS error encountered: {
+                              error_message}. Skipping this record.")
+                        return None  # Safely pass without retrying
                     else:
                         if attempt < max_retries - 1:
                             print(f"\nAttempt {
                                   attempt + 1} failed: {error_message}")
-                            print(f"Retrying in {int(delay)} seconds...")
-                            time.sleep(delay)
+                            delay_with_jitter = delay * \
+                                random.uniform(1.0, 1.5)  # Increased jitter
+                            print(f"Retrying in {
+                                  int(delay_with_jitter)} seconds...")
+                            time.sleep(delay_with_jitter)
                             delay = min(delay * 2, MAX_DELAY)
                         else:
                             print(f"\nAll {max_retries} attempts failed. Last error: {
@@ -171,7 +179,7 @@ def translate_record(record):
             rejected=[Message(content=msg.content, role=original_record.rejected[i].role)
                       for i, msg in enumerate(translated_rejected)],
             prompt=translated_prompt,
-            question=translated_prompt,
+            question=translated_prompt,  # ensure prompt and question are the same
         )
         return translated_record.model_dump()
     except Exception as e:
@@ -206,7 +214,7 @@ current_index = load_checkpoint()
 # Process and translate the dataset using threading
 THREAD_DELAY = 5  # Increase delay to reduce API load
 
-# Modify the main processing loop to handle shutdown_event
+# Processing loop
 for split in dataset.keys():
     total_records = len(dataset[split])
     with tqdm(total=total_records - current_index, initial=current_index, desc=f"Translating {split} split") as pbar:

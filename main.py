@@ -4,6 +4,7 @@ import sys
 import json
 import time
 from functools import wraps
+import random  # Added import
 from datasets import load_dataset
 from llama_index.llms.gemini import Gemini
 from llama_index.core import Settings
@@ -81,7 +82,7 @@ class Record(BaseModel):
 translate_llm = llm.as_structured_llm(output_cls=Record)
 
 MAX_RETRIES = 3
-INITIAL_RETRY_DELAY = 1  # seconds
+INITIAL_RETRY_DELAY = 3  # seconds
 MAX_DELAY = 60  # Maximum delay between retries
 
 
@@ -97,7 +98,7 @@ def retry_on_error(max_retries=MAX_RETRIES, initial_delay=INITIAL_RETRY_DELAY):
                     return func(*args, **kwargs)
                 except Exception as e:
                     error_message = str(e)
-                    if "429" in error_message or "Resource has been exhausted" in error_message:
+                    if "429" in error_message and "Resource has been exhausted" in error_message:
                         print(f"\nAttempt {
                               attempt + 1} failed with rate limit error: {error_message}")
                         print(
@@ -105,12 +106,19 @@ def retry_on_error(max_retries=MAX_RETRIES, initial_delay=INITIAL_RETRY_DELAY):
                         save_checkpoint(current_index)
                         shutdown_event.set()
                         return None
+                    elif "MAX_TOKENS" in error_message:
+                        print(f"\nMAX_TOKENS error encountered: {
+                              error_message}. Skipping this record.")
+                        return None  # Safely pass without retrying
                     else:
                         if attempt < max_retries - 1:
                             print(f"\nAttempt {
                                   attempt + 1} failed: {error_message}")
-                            print(f"Retrying in {int(delay)} seconds...")
-                            time.sleep(delay)
+                            delay_with_jitter = delay * \
+                                random.uniform(1.0, 1.5)  # Increased jitter
+                            print(f"Retrying in {
+                                  int(delay_with_jitter)} seconds...")
+                            time.sleep(delay_with_jitter)
                             delay = min(delay * 2, MAX_DELAY)
                         else:
                             print(f"\nAll {max_retries} attempts failed. Last error: {
