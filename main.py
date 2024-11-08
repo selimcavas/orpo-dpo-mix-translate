@@ -25,7 +25,7 @@ dataset = dataset.filter(
 )
 
 # Initialize the gemini flash 1.5 model, switch keys when daily limit of 1.5k requests is reached
-google_api_key = os.getenv('GOOGLE_API_KEY4')
+google_api_key = os.getenv('GOOGLE_API_KEY6')
 Settings.llm = Gemini(api_key=google_api_key,
                       model="models/gemini-1.5-flash-002", temperature=0.67)
 llm = Settings.llm
@@ -217,7 +217,7 @@ THREAD_DELAY = 5  # Increase delay to reduce API load
 # Processing loop
 for split in dataset.keys():
     total_records = len(dataset[split])
-    with tqdm(total=total_records - current_index, initial=current_index, desc=f"Translating {split} split") as pbar:
+    with tqdm(total=total_records, initial=current_index, desc=f"Translating {split} split") as pbar:
         with ThreadPoolExecutor(max_workers=15) as executor:
             futures = []
             for i in range(current_index, total_records):
